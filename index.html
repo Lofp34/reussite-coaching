@@ -45,6 +45,74 @@
     .btn-actions {
       margin: 0.3rem;
     }
+
+    .spinner-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    .spinner-content {
+      text-align: center;
+      color: white;
+    }
+
+    .modal-lg {
+      max-width: 800px;
+    }
+
+    .modal-body {
+      white-space: pre-wrap;
+      max-height: 70vh;
+      overflow-y: auto;
+    }
+
+    /* Styles pour le Markdown dans le modal */
+    .markdown-body h3 {
+      color: #0d6efd;
+      border-bottom: 2px solid #0d6efd;
+      padding-bottom: 0.5rem;
+      margin-top: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .markdown-body h4 {
+      color: #198754;
+      margin-top: 1.2rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .markdown-body ul, .markdown-body ol {
+      padding-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .markdown-body li {
+      margin-bottom: 0.5rem;
+    }
+
+    .markdown-body p {
+      margin-bottom: 1rem;
+      line-height: 1.6;
+    }
+
+    .modal-body.markdown-body {
+      padding: 1.5rem;
+      font-size: 1rem;
+      line-height: 1.6;
+      color: #212529;
+    }
+
+    .markdown-body strong {
+      color: #0d6efd;
+    }
   </style>
 </head>
 <body>
@@ -70,12 +138,31 @@
     <button class="btn btn-outline-primary btn-actions" id="copyBtn">Copier</button>
   </div>
 
-  <!-- Section Gemini -->
-  <div class="gemini-section">
-    <label for="geminiQuestion" class="form-label fw-bold">Poser une question à Gemini</label>
-    <input type="text" id="geminiQuestion" class="form-control mb-2"
-           placeholder="Tapez votre question ici..."/>
-    <button class="btn btn-primary" id="geminiBtn">Envoyer à Gemini</button>
+  <!-- Spinner de chargement -->
+  <div class="spinner-overlay" id="loadingSpinner">
+    <div class="spinner-content">
+      <div class="spinner-border text-light mb-2" role="status">
+        <span class="visually-hidden">Chargement...</span>
+      </div>
+      <div>Traitement en cours...</div>
+    </div>
+  </div>
+
+  <!-- Modal pour la synthèse -->
+  <div class="modal fade" id="synthesisModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalTitle">Synthèse de la découverte</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body markdown-body" id="synthesisContent"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" id="copySynthesis">Copier</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -107,20 +194,6 @@
             "Début d'année : comment s'est passée la rentrée ?",
             "Fin d'année : comment s'est passée cette année (on envisage des cours pour l'été si besoin)",
             "Comment s'est passée l'adaptation Primaire/Collège & Collège/Lycée ?"
-          ]
-        }
-      ]
-    },
-    {
-      title: "3. Profs du Collège",
-      isOpen: false,
-      notes: "",
-      subCards: [
-        {
-          title: "Relation avec les Professeurs",
-          isOpen: false,
-          content: [
-            "Comment ça se passe avec les professeurs (feeling mauvais = élève qui ne travaille pas)"
           ]
         }
       ]
@@ -253,21 +326,17 @@
   });
 
   document.getElementById("synthBtn").addEventListener("click", () => {
-    alert("Ici, on pourrait déclencher la synthèse de la découverte (ex. via un résumé automatique).");
+    synthesizeDiscovery();
   });
 
   document.getElementById("mailBtn").addEventListener("click", () => {
-    alert("Ici, on pourrait générer un email type à partir des notes saisies.");
+    createFollowUpEmail();
   });
 
   document.getElementById("copyBtn").addEventListener("click", () => {
     navigator.clipboard.writeText(globalNotesArea.value)
       .then(() => alert("Notes copiées !"))
       .catch(err => console.error("Erreur de copie : ", err));
-  });
-
-  document.getElementById("geminiBtn").addEventListener("click", () => {
-    sendToGemini();
   });
 
   // Fonction qui crée la carte principale
@@ -350,44 +419,262 @@
     return subCardDiv;
   }
 
-  // Fonction d'envoi à Gemini (via notre serveur Flask)
-  function sendToGemini() {
-    const question = document.getElementById("geminiQuestion").value;
-    if (!question.trim()) {
-      alert("Veuillez poser une question avant d'envoyer à Gemini !");
-      return;
+  // Fonction utilitaire pour afficher/masquer le spinner
+  function toggleSpinner(show) {
+    document.getElementById('loadingSpinner').style.display = show ? 'flex' : 'none';
+  }
+
+  // Fonction pour convertir le Markdown en HTML
+  function markdownToHtml(markdown) {
+    return markdown
+      // Titres
+      .replace(/### (.*)/g, '<h3>$1</h3>')
+      .replace(/#### (.*)/g, '<h4>$1</h4>')
+      // Listes
+      .replace(/^\d+\. (.*)/gm, '<li>$1</li>')
+      .replace(/^- (.*)/gm, '<li>$1</li>')
+      // Gras
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      // Paragraphes
+      .replace(/\n\n/g, '</p><p>')
+      // Wrap des listes
+      .replace(/(<li>.*<\/li>)\n(<li>)/g, '$1$2')
+      .replace(/(<li>.*<\/li>)+/g, '<ul>$&</ul>')
+      // Nettoyage final
+      .replace(/<\/ul>\n<ul>/g, '\n')
+      .replace(/^(.+?)(?=<h3>|$)/s, '<p>$1</p>');
+  }
+
+  // Mise à jour de la fonction d'affichage de la synthèse
+  function displayInModal(content, title) {
+    const modalTitle = document.getElementById('modalTitle');
+    const synthesisContent = document.getElementById('synthesisContent');
+    
+    modalTitle.textContent = title;
+    synthesisContent.innerHTML = markdownToHtml(content);
+    
+    new bootstrap.Modal(document.getElementById('synthesisModal')).show();
+  }
+
+  // Fonction de synthèse avec OpenAI
+  async function synthesizeDiscovery() {
+    // Vérification de la clé API
+    if (!OPENAI_API_KEY) {
+      if (!setApiKey()) {
+        alert("Une clé API OpenAI est nécessaire pour utiliser cette fonctionnalité.");
+        return;
+      }
     }
 
-    // Récupération des notes (cartes + global) et construction du "context"
-    const globalNotes = localStorage.getItem("globalNotes") || "";
-    const fullData = JSON.parse(localStorage.getItem("cardsData") || "[]");
+    toggleSpinner(true);
 
-    const payload = {
-      question: question,
-      context: {
-        globalNotes: globalNotes,
-        cards: fullData
+    try {
+      const context = getNotesContext();
+      const systemPrompt = `Tu es un expert en analyse pédagogique spécialisé dans la synthèse de découvertes avec des élèves et leurs familles.
+Tu dois produire une synthèse structurée et professionnelle qui suit exactement ce format :
+
+### Synthèse de la Découverte avec l'Élève et sa Famille
+
+#### 1. État général de l'élève
+[Points clés sur l'état général, le bien-être et la situation actuelle]
+
+#### 2. Matières et intérêts
+[Analyse des matières fortes/faibles et centres d'intérêt]
+
+#### 3. Relation avec le professeur
+[Évaluation de la relation pédagogique]
+
+#### 4. Ambiance familiale
+[Analyse du contexte familial et du soutien]
+
+#### 5. Méthodes de travail et organisation
+[Évaluation des méthodes et de l'organisation]
+
+#### 6. Soutien familial
+[Analyse du soutien familial disponible]
+
+#### 7. Motivation
+[Évaluation du niveau de motivation]
+
+### Recommandations Actionnables
+[Liste numérotée de 3 à 5 recommandations concrètes et réalisables]`;
+
+      const userPrompt = `Voici les notes d'une découverte avec un élève et sa famille. Analyse ces notes et produis une synthèse structurée qui met en avant les points clés et propose des recommandations actionnables.\n\n${context}`;
+
+      const response = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: userPrompt
+            }
+          ],
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('OPENAI_API_KEY');
+          OPENAI_API_KEY = '';
+          throw new Error('Clé API invalide. Veuillez vérifier votre clé et réessayer.');
+        }
+        throw new Error(`Erreur API (${response.status}): ${await response.text()}`);
       }
-    };
 
-    // Appel à notre endpoint Flask
-    fetch("http://127.0.0.1:5000/sendToGemini", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    })
-    .then((response) => response.json())
-    .then((data) => {
-      // data.response = la réponse de Gemini
-      alert("Réponse de Gemini:\n" + data.response);
-    })
-    .catch((err) => {
-      console.error("Erreur lors de l'appel à Gemini:", err);
-      alert("Erreur: impossible d'appeler l'API Gemini.");
-    });
+      const data = await response.json();
+      
+      if (data.choices && data.choices[0]) {
+        const synthesis = data.choices[0].message.content;
+        displayInModal(synthesis, 'Synthèse de la découverte');
+      } else {
+        throw new Error('Réponse invalide de l\'API');
+      }
+    } catch (error) {
+      console.error("Erreur lors de la synthèse:", error);
+      alert(`Erreur lors de la génération de la synthèse: ${error.message}`);
+    } finally {
+      toggleSpinner(false);
+    }
   }
+
+  // Fonction pour créer l'email de suivi
+  async function createFollowUpEmail() {
+    if (!OPENAI_API_KEY) {
+      if (!setApiKey()) {
+        alert("Une clé API OpenAI est nécessaire pour utiliser cette fonctionnalité.");
+        return;
+      }
+    }
+
+    toggleSpinner(true);
+
+    try {
+      const context = getNotesContext();
+      const systemPrompt = `Tu es un expert en communication client pour une société de coaching scolaire.
+Tu dois rédiger un email de suivi court, professionnel et chaleureux pour résumer une séance de découverte avec des parents d'élève.
+
+Règles importantes :
+1. L'email doit être concis (maximum 15 lignes)
+2. Le ton doit être professionnel mais chaleureux
+3. Utiliser "vous" et non "tu"
+4. Inclure :
+   - Un remerciement pour le temps accordé
+   - Un bref résumé des points clés discutés
+   - Une ou deux recommandations concrètes
+   - Une proposition de suite
+5. Terminer par une formule de politesse appropriée
+
+Format de l'email :
+Objet : Synthèse de notre échange - Découverte [Réussite]
+
+Chers parents,
+
+[Corps de l'email]
+
+[Formule de politesse]
+[Signature]`;
+
+      const userPrompt = `Voici les notes de la découverte avec la famille. Rédige un email de suivi professionnel et sympathique en suivant le format spécifié.\n\n${context}`;
+
+      const response = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: systemPrompt
+            },
+            {
+              role: "user",
+              content: userPrompt
+            }
+          ],
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('OPENAI_API_KEY');
+          OPENAI_API_KEY = '';
+          throw new Error('Clé API invalide. Veuillez vérifier votre clé et réessayer.');
+        }
+        throw new Error(`Erreur API (${response.status}): ${await response.text()}`);
+      }
+
+      const data = await response.json();
+      if (data.choices && data.choices[0]) {
+        const email = data.choices[0].message.content;
+        displayInModal(email, 'Email de suivi');
+      } else {
+        throw new Error('Réponse invalide de l\'API');
+      }
+    } catch (error) {
+      console.error("Erreur lors de la création de l'email:", error);
+      alert(`Erreur: ${error.message}`);
+    } finally {
+      toggleSpinner(false);
+    }
+  }
+
+  // Fonction pour obtenir le contexte des notes
+  function getNotesContext() {
+    const globalNotes = localStorage.getItem("globalNotes") || "";
+    const cardsData = JSON.parse(localStorage.getItem("cardsData") || "[]");
+    
+    let context = "";
+    if (globalNotes) {
+      context += "Notes globales:\n" + globalNotes + "\n\n";
+    }
+    
+    cardsData.forEach(card => {
+      if (card.notes) {
+        context += `${card.title}:\n${card.notes}\n\n`;
+      }
+    });
+
+    return context;
+  }
+
+  // Configuration OpenAI
+  let OPENAI_API_KEY = localStorage.getItem('OPENAI_API_KEY') || '';
+  const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+
+  // Fonction pour définir la clé API
+  function setApiKey() {
+    const key = prompt("Veuillez entrer votre clé API OpenAI:");
+    if (key) {
+      OPENAI_API_KEY = key;
+      localStorage.setItem('OPENAI_API_KEY', key);
+      return true;
+    }
+    return false;
+  }
+
+  // Event listeners pour les nouveaux boutons
+  document.getElementById("mailBtn").addEventListener("click", createFollowUpEmail);
+  document.getElementById("copySynthesis").addEventListener("click", () => {
+    const content = document.getElementById('synthesisContent').textContent;
+    navigator.clipboard.writeText(content)
+      .then(() => alert("Contenu copié !"))
+      .catch(err => console.error("Erreur de copie : ", err));
+  });
 </script>
 
 <!-- JS Bootstrap 5 (CDN) -->
