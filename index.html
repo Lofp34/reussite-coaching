@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>MVP Prise de Notes</title>
+
+  <!-- Lien Bootstrap 5 (CDN) -->
+  <link 
+    rel="stylesheet" 
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+  >
+
+  <style>
+    body {
+      margin: 20px;
+      background-color: #f8f9fa;
+    }
+
+    .card-header {
+      cursor: pointer;
+    }
+
+    .subcard {
+      margin-left: 2rem;
+      border-left: 2px solid #ddd;
+      padding-left: 1rem;
+    }
+
+    .notes-textarea {
+      width: 100%;
+      height: 100px;
+      resize: vertical;
+    }
+
+    .bottom-section {
+      margin-top: 1rem;
+    }
+
+    .gemini-section {
+      border-top: 1px solid #ccc;
+      margin-top: 1rem;
+      padding-top: 1rem;
+    }
+
+    .btn-actions {
+      margin: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1 class="my-4">Découverte du Cabinet (MVP)</h1>
+
+  <!-- Conteneur principal des cartes -->
+  <div id="cardsContainer" class="accordion"></div>
+
+  <!-- Zone de notes globales -->
+  <div class="mb-3 mt-4">
+    <label for="globalNotes" class="form-label fw-bold">Prendre des Notes</label>
+    <textarea id="globalNotes" class="form-control" rows="4"
+              placeholder="Vos notes globales ici..."></textarea>
+  </div>
+
+  <!-- Boutons actions -->
+  <div class="d-flex flex-wrap bottom-section">
+    <button class="btn btn-secondary btn-actions" id="resetBtn">Réinitialiser la découverte</button>
+    <button class="btn btn-success btn-actions" id="synthBtn">Synthétiser la découverte</button>
+    <button class="btn btn-info text-white btn-actions" id="mailBtn">Créer un email de suivi</button>
+    <button class="btn btn-outline-primary btn-actions" id="copyBtn">Copier</button>
+  </div>
+
+  <!-- Section Gemini -->
+  <div class="gemini-section">
+    <label for="geminiQuestion" class="form-label fw-bold">Poser une question à Gemini</label>
+    <input type="text" id="geminiQuestion" class="form-control mb-2"
+           placeholder="Tapez votre question ici..."/>
+    <button class="btn btn-primary" id="geminiBtn">Envoyer à Gemini</button>
+  </div>
+</div>
+
+<!-- Scripts -->
+<script>
+  // Données de cartes
+  const cardsData = [
+    {
+      title: "1. Des nouvelles de l'élève",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Santé et Bien-être",
+          isOpen: false,
+          content: [ "Comment va l'élève ?" ]
+        }
+      ]
+    },
+    {
+      title: "2. Élève Collège/Lycée",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Début et Fin d'Année",
+          isOpen: false,
+          content: [
+            "Début d'année : comment s'est passée la rentrée ?",
+            "Fin d'année : comment s'est passée cette année (on envisage des cours pour l'été si besoin)",
+            "Comment s'est passée l'adaptation Primaire/Collège & Collège/Lycée ?"
+          ]
+        }
+      ]
+    },
+    {
+      title: "3. Profs du Collège",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Relation avec les Professeurs",
+          isOpen: false,
+          content: [
+            "Comment ça se passe avec les professeurs (feeling mauvais = élève qui ne travaille pas)"
+          ]
+        }
+      ]
+    },
+    {
+      title: "4. Prof Réussite",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Cours avec le Professeur",
+          isOpen: false,
+          content: [
+            "Comment se passent les cours avec le prof déjà en place ? Le feeling est OK ?"
+          ]
+        }
+      ]
+    },
+    {
+      title: "5. Ambiance à la Maison",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Devoirs et Relations",
+          isOpen: false,
+          content: [
+            "Comment les devoirs se passent à la maison ?",
+            "Comment décririez-vous les relations avec X aujourd'hui ?",
+            "Quand / comment arrivez-vous à passer du temps de qualité avec X ? (temps de qualité : qui ne crée pas de conflits, où l'on fait autre chose que les devoirs, etc.)",
+            "Comment a évolué l'ambiance depuis le début des cours particuliers ?"
+          ]
+        }
+      ]
+    },
+    {
+      title: "6. Méthode et Organisation",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Méthode de Travail",
+          isOpen: false,
+          content: [
+            "Quel est son niveau de méthode de travail et d'organisation (creuser si besoin)",
+            "Comment s'organise X pour préparer le Brevet/bac : sentez-vous du stress ?"
+          ]
+        }
+      ]
+    },
+    {
+      title: "7. Autres Membres de la Famille",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Frères et Sœurs",
+          isOpen: false,
+          content: [
+            "Pouvez-vous me rappeler, X a des frères et sœurs ?",
+            "Quel âge ?",
+            "Quelle classe ?",
+            "Comment ça se passe pour eux ?"
+          ]
+        }
+      ]
+    },
+    {
+      title: "8. Motivation",
+      isOpen: false,
+      notes: "",
+      subCards: [
+        {
+          title: "Évaluation de la Motivation",
+          isOpen: false,
+          content: [
+            "À combien évalueriez-vous la motivation de X sur 10 ?"
+          ]
+        }
+      ]
+    }
+  ];
+
+  // Récupération de l'état depuis localStorage s'il existe
+  function loadDataFromStorage() {
+    const savedData = localStorage.getItem("cardsData");
+    if (savedData) {
+      return JSON.parse(savedData);
+    } else {
+      return cardsData;
+    }
+  }
+
+  // Sauvegarde dans localStorage
+  function saveDataToStorage(data) {
+    localStorage.setItem("cardsData", JSON.stringify(data));
+  }
+
+  // Récupération des notes globales
+  function loadGlobalNotes() {
+    return localStorage.getItem("globalNotes") || "";
+  }
+
+  function saveGlobalNotes(text) {
+    localStorage.setItem("globalNotes", text);
+  }
+
+  // Génération du HTML
+  const container = document.getElementById("cardsContainer");
+  let loadedCards = loadDataFromStorage();
+  loadedCards.forEach((card, index) => {
+    container.appendChild(createCard(card, index));
+  });
+
+  // Initialisation de la zone de notes globales
+  const globalNotesArea = document.getElementById("globalNotes");
+  globalNotesArea.value = loadGlobalNotes();
+
+  // Ajout d'événements
+  globalNotesArea.addEventListener("input", (e) => {
+    saveGlobalNotes(e.target.value);
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    if (confirm("Êtes-vous sûr(e) de vouloir tout réinitialiser ?")) {
+      localStorage.removeItem("cardsData");
+      localStorage.removeItem("globalNotes");
+      window.location.reload();
+    }
+  });
+
+  document.getElementById("synthBtn").addEventListener("click", () => {
+    alert("Ici, on pourrait déclencher la synthèse de la découverte (ex. via un résumé automatique).");
+  });
+
+  document.getElementById("mailBtn").addEventListener("click", () => {
+    alert("Ici, on pourrait générer un email type à partir des notes saisies.");
+  });
+
+  document.getElementById("copyBtn").addEventListener("click", () => {
+    navigator.clipboard.writeText(globalNotesArea.value)
+      .then(() => alert("Notes copiées !"))
+      .catch(err => console.error("Erreur de copie : ", err));
+  });
+
+  document.getElementById("geminiBtn").addEventListener("click", () => {
+    sendToGemini();
+  });
+
+  // Fonction qui crée la carte principale
+  function createCard(cardData, cardIndex) {
+    // Card container
+    const cardDiv = document.createElement("div");
+    cardDiv.className = "card mb-2";
+
+    // Card header
+    const headerDiv = document.createElement("div");
+    headerDiv.className = "card-header";
+    headerDiv.textContent = cardData.title;
+    headerDiv.addEventListener("click", () => {
+      cardData.isOpen = !cardData.isOpen;
+      saveDataToStorage(loadedCards);
+      bodyDiv.style.display = cardData.isOpen ? "block" : "none";
+    });
+
+    // Card body
+    const bodyDiv = document.createElement("div");
+    bodyDiv.className = "card-body";
+    bodyDiv.style.display = cardData.isOpen ? "block" : "none";
+
+    // Sous-cartes
+    cardData.subCards.forEach((sub, subIndex) => {
+      bodyDiv.appendChild(createSubCard(sub, cardIndex, subIndex));
+    });
+
+    // Notes pour la carte principale
+    const notesLabel = document.createElement("label");
+    notesLabel.textContent = "Notes pour " + cardData.title + " :";
+    notesLabel.className = "form-label fw-bold mt-3";
+
+    const notesArea = document.createElement("textarea");
+    notesArea.className = "form-control mb-2 notes-textarea";
+    notesArea.value = cardData.notes || "";
+    notesArea.addEventListener("input", (e) => {
+      cardData.notes = e.target.value;
+      saveDataToStorage(loadedCards);
+    });
+
+    bodyDiv.appendChild(notesLabel);
+    bodyDiv.appendChild(notesArea);
+
+    cardDiv.appendChild(headerDiv);
+    cardDiv.appendChild(bodyDiv);
+
+    return cardDiv;
+  }
+
+  // Fonction qui crée une sous-carte
+  function createSubCard(subCardData, cardIndex, subIndex) {
+    const subCardDiv = document.createElement("div");
+    subCardDiv.className = "subcard";
+
+    // Titre sous-carte
+    const subTitle = document.createElement("h5");
+    subTitle.textContent = subCardData.title;
+    subTitle.className = "mt-3";
+    subTitle.style.cursor = "pointer";
+    subTitle.addEventListener("click", () => {
+      subCardData.isOpen = !subCardData.isOpen;
+      saveDataToStorage(loadedCards);
+      subContentDiv.style.display = subCardData.isOpen ? "block" : "none";
+    });
+
+    const subContentDiv = document.createElement("div");
+    subContentDiv.style.display = subCardData.isOpen ? "block" : "none";
+
+    // Contenu
+    subCardData.content.forEach(item => {
+      const p = document.createElement("p");
+      p.textContent = item;
+      subContentDiv.appendChild(p);
+    });
+
+    subCardDiv.appendChild(subTitle);
+    subCardDiv.appendChild(subContentDiv);
+
+    return subCardDiv;
+  }
+
+  // Fonction d'envoi à Gemini (via notre serveur Flask)
+  function sendToGemini() {
+    const question = document.getElementById("geminiQuestion").value;
+    if (!question.trim()) {
+      alert("Veuillez poser une question avant d'envoyer à Gemini !");
+      return;
+    }
+
+    // Récupération des notes (cartes + global) et construction du "context"
+    const globalNotes = localStorage.getItem("globalNotes") || "";
+    const fullData = JSON.parse(localStorage.getItem("cardsData") || "[]");
+
+    const payload = {
+      question: question,
+      context: {
+        globalNotes: globalNotes,
+        cards: fullData
+      }
+    };
+
+    // Appel à notre endpoint Flask
+    fetch("http://127.0.0.1:5000/sendToGemini", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    })
+    .then((response) => response.json())
+    .then((data) => {
+      // data.response = la réponse de Gemini
+      alert("Réponse de Gemini:\n" + data.response);
+    })
+    .catch((err) => {
+      console.error("Erreur lors de l'appel à Gemini:", err);
+      alert("Erreur: impossible d'appeler l'API Gemini.");
+    });
+  }
+</script>
+
+<!-- JS Bootstrap 5 (CDN) -->
+<script 
+  src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js">
+</script>
+</body>
+</html>
